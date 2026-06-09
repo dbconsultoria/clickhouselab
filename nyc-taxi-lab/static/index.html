@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NYC Taxi ClickHouse Lab</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --surface2:  #22263a;
+      --border:    #2e3250;
+      --text:      #e2e8f0;
+      --muted:     #8892b0;
+      --accent:    #7c6af7;
+      --green:     #43d394;
+      --orange:    #f97316;
+      --red:       #f87171;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    #app {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    /* ---- IDLE ---- */
+    #idle-screen { text-align: center; max-width: 600px; }
+
+    #idle-screen h1 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #a78bfa 0%, #7c6af7 50%, #60a5fa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+    }
+    #idle-screen p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-bottom: 2.5rem;
+    }
+
+    /* ---- BUTTONS ---- */
+    .btn-primary {
+      background: linear-gradient(135deg, #7c6af7, #60a5fa);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 0.9rem 2.8rem;
+      font-size: 1rem;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover  { opacity: 0.88; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 0.45rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+
+    /* ---- PROGRESS SCREENS ---- */
+    .progress-screen {
+      width: 100%;
+      max-width: 600px;
+      text-align: center;
+    }
+    .progress-screen h2 {
+      font-size: 1.1rem;
+      color: var(--muted);
+      margin-bottom: 1.2rem;
+      letter-spacing: 0.05em;
+    }
+    .progress-track {
+      background: var(--surface2);
+      border-radius: 999px;
+      height: 10px;
+      overflow: hidden;
+      margin-bottom: 0.6rem;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.4s ease;
+      background: linear-gradient(90deg, #7c6af7, #60a5fa);
+    }
+    .progress-fill.insert { background: linear-gradient(90deg, #f97316, #facc15); }
+    .progress-pct {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 1.5rem;
+    }
+
+    /* ---- INSERT METRICS ---- */
+    .metrics {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 1.6rem;
+      flex-wrap: wrap;
+    }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.4rem;
+      min-width: 140px;
+      text-align: center;
+    }
+    .metric-card .label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 0.3rem;
+    }
+    .metric-card .value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--orange);
+    }
+
+    /* ---- READY ---- */
+    #ready-screen { width: 100%; max-width: 860px; }
+
+    #ready-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.2rem;
+      flex-wrap: wrap;
+    }
+    #ready-banner {
+      flex: 1;
+      background: linear-gradient(135deg, rgba(67,211,148,0.12), rgba(67,211,148,0.04));
+      border: 1px solid rgba(67,211,148,0.35);
+      border-radius: 10px;
+      padding: 0.85rem 1.2rem;
+      color: var(--green);
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    #query-editor {
+      width: 100%;
+      height: 140px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 0.88rem;
+      padding: 0.85rem 1rem;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 0.75rem;
+    }
+    #query-editor:focus { border-color: var(--accent); }
+
+    .query-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    #btn-run {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      padding: 0.55rem 1.4rem;
+      font-family: var(--font-mono);
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+    #btn-run:hover    { opacity: 0.85; }
+    #btn-run:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #query-meta { font-size: 0.8rem; color: var(--muted); }
+
+    /* ---- RESULT TABLE ---- */
+    #result-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--surface2);
+      color: var(--muted);
+      text-align: left;
+      padding: 0.55rem 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr:nth-child(odd)  { background: var(--surface); }
+    tbody tr:nth-child(even) { background: var(--bg); }
+    tbody tr:hover { background: var(--surface2); }
+    tbody td {
+      padding: 0.45rem 0.9rem;
+      color: var(--text);
+      border-bottom: 1px solid rgba(46,50,80,0.4);
+    }
+
+    /* ---- ERROR ---- */
+    .error-box {
+      background: rgba(248,113,113,0.1);
+      border: 1px solid rgba(248,113,113,0.4);
+      border-radius: 8px;
+      color: var(--red);
+      padding: 0.9rem 1.2rem;
+      margin-top: 1rem;
+      font-size: 0.85rem;
+      word-break: break-all;
+    }
+
+    .hidden { display: none !important; }
+
+    @keyframes pulse-bar {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.7; }
+    }
+    .animating .progress-fill { animation: pulse-bar 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- IDLE -->
+  <div id="idle-screen">
+    <h1>NYC Taxi ClickHouse Lab</h1>
+    <p>~1M rows &nbsp;·&nbsp; MergeTree &nbsp;·&nbsp; columnar performance</p>
+    <button id="btn-start" class="btn-primary">INICIAR PIPELINE</button>
+    <div id="idle-error" class="error-box hidden"></div>
+  </div>
+
+  <!-- DOWNLOADING -->
+  <div id="download-screen" class="progress-screen hidden">
+    <h2>Downloading dataset...</h2>
+    <div class="progress-track animating">
+      <div id="dl-bar" class="progress-fill" style="width:0%"></div>
+    </div>
+    <div id="dl-pct" class="progress-pct">0%</div>
+  </div>
+
+  <!-- INSERTING -->
+  <div id="insert-screen" class="progress-screen hidden">
+    <h2>Inserting rows into ClickHouse...</h2>
+    <div class="progress-track animating">
+      <div id="ins-bar" class="progress-fill insert" style="width:0%"></div>
+    </div>
+    <div id="ins-pct" class="progress-pct">0%</div>
+    <div class="metrics">
+      <div class="metric-card">
+        <div class="label">Rows Inserted</div>
+        <div class="value" id="m-rows">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Elapsed</div>
+        <div class="value" id="m-elapsed">00:00:00</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Rows / sec</div>
+        <div class="value" id="m-rps">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- READY -->
+  <div id="ready-screen" class="hidden">
+    <div id="ready-header">
+      <div id="ready-banner"></div>
+      <button id="btn-reset" class="btn-ghost">&#8635; Reiniciar</button>
+    </div>
+    <textarea id="query-editor" spellcheck="false">SELECT pickup_ntaname, avg(tip_amount) as avg_tip, count() as trips
+FROM nyc_taxi.trips
+GROUP BY pickup_ntaname
+ORDER BY avg_tip DESC
+LIMIT 20</textarea>
+    <div class="query-row">
+      <button id="btn-run">&#9654; EXECUTAR</button>
+      <span id="query-meta"></span>
+    </div>
+    <div id="result-wrap" class="hidden"></div>
+    <div id="query-error" class="error-box hidden"></div>
+  </div>
+
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+
+  const screens = {
+    idle:       $('idle-screen'),
+    download:   $('download-screen'),
+    insert:     $('insert-screen'),
+    ready:      $('ready-screen'),
+  };
+
+  let pollTimer = null;
+
+  // ---- Helpers ----
+  function fmt(n) {
+    if (n == null) return '—';
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
+    if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function fmtTime(sec) {
+    const s = Math.floor(sec) % 60;
+    const m = Math.floor(sec / 60) % 60;
+    const h = Math.floor(sec / 3600);
+    return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+  }
+
+  function showOnly(key) {
+    Object.values(screens).forEach(el => el.classList.add('hidden'));
+    screens[key].classList.remove('hidden');
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  // ---- Status → UI ----
+  function applyStatus(s) {
+    if (s.error) {
+      stopPolling();
+      showOnly('idle');
+      $('idle-error').textContent = 'Error: ' + s.error;
+      $('idle-error').classList.remove('hidden');
+      return;
+    }
+
+    if (s.phase === 'downloading') {
+      showOnly('download');
+      const pct = s.download_progress.toFixed(1);
+      $('dl-bar').style.width = pct + '%';
+      $('dl-pct').textContent = pct + '%';
+    }
+
+    if (s.phase === 'inserting') {
+      showOnly('insert');
+      const pct = s.insert_progress.toFixed(1);
+      $('ins-bar').style.width = pct + '%';
+      $('ins-pct').textContent = pct + '%';
+
+      const done    = s.rows_inserted || 0;
+      const elapsed = s.insert_elapsed_seconds || 0;
+      $('m-rows').textContent    = fmt(done);
+      $('m-elapsed').textContent = fmtTime(elapsed);
+      $('m-rps').textContent     = elapsed > 0 ? fmt(Math.round(done / elapsed)) + '/s' : '—';
+    }
+
+    if (s.phase === 'ready') {
+      stopPolling();
+      showOnly('ready');
+      const rows = s.rows_inserted || s.total_rows || 0;
+      const sec  = Math.round(s.insert_elapsed_seconds || 0);
+      $('ready-banner').textContent =
+        '✓ Dataset ready — ' + fmt(rows) + ' rows loaded in ' + fmtTime(sec);
+    }
+  }
+
+  // ---- Polling ----
+  async function poll() {
+    try {
+      const s = await fetch('/status').then(r => r.json());
+      applyStatus(s);
+    } catch (e) {
+      console.warn('poll error', e);
+    }
+  }
+
+  function startPolling() { poll(); pollTimer = setInterval(poll, 500); }
+
+  // ---- Start ----
+  $('btn-start').addEventListener('click', async () => {
+    $('idle-error').classList.add('hidden');
+    try {
+      const res = await fetch('/start', { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      startPolling();
+    } catch (e) {
+      $('idle-error').textContent = 'Error: ' + e.message;
+      $('idle-error').classList.remove('hidden');
+    }
+  });
+
+  // ---- Reset ----
+  $('btn-reset').addEventListener('click', async () => {
+    try {
+      await fetch('/reset', { method: 'POST' });
+      $('result-wrap').classList.add('hidden');
+      $('query-error').classList.add('hidden');
+      $('query-meta').textContent = '';
+      showOnly('idle');
+    } catch (e) {
+      console.warn('reset error', e);
+    }
+  });
+
+  // ---- Query ----
+  $('btn-run').addEventListener('click', async () => {
+    const sql = $('query-editor').value.trim();
+    if (!sql) return;
+
+    const btn = $('btn-run');
+    btn.disabled = true;
+    $('query-meta').textContent = 'Running...';
+    $('query-error').classList.add('hidden');
+    $('result-wrap').classList.add('hidden');
+
+    try {
+      const data = await fetch('/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql }),
+      }).then(r => r.json());
+
+      if (data.error) {
+        $('query-error').textContent = data.error;
+        $('query-error').classList.remove('hidden');
+        $('query-meta').textContent = '';
+        return;
+      }
+
+      $('query-meta').textContent = data.elapsed_ms + 'ms · ' + data.row_count + ' rows';
+
+      const wrap = $('result-wrap');
+      let html = '<table><thead><tr>';
+      data.columns.forEach(c => { html += '<th>' + esc(c) + '</th>'; });
+      html += '</tr></thead><tbody>';
+      data.rows.forEach(row => {
+        html += '<tr>';
+        row.forEach(cell => { html += '<td>' + esc(String(cell ?? '')) + '</td>'; });
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+      wrap.classList.remove('hidden');
+    } catch (e) {
+      $('query-error').textContent = e.message;
+      $('query-error').classList.remove('hidden');
+      $('query-meta').textContent = '';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('query-editor').addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      $('btn-run').click();
+    }
+  });
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // ---- Resume on reload ----
+  (async () => {
+    try {
+      const s = await fetch('/status').then(r => r.json());
+      if (s.phase === 'ready') { applyStatus(s); return; }
+      if (s.error)             { applyStatus(s); return; }
+      if (s.phase !== 'idle')  { startPolling(); }
+    } catch (_) {}
+  })();
+</script>
+</body>
+</html>
